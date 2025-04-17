@@ -4,8 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Time Value of Money Calculator</title>
+    <!-- Load the required libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.5.0/mammoth.browser.min.js"></script>
+    <script src="https://unpkg.com/docx@8.0.4/build/index.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -110,6 +111,19 @@
             background-color: #eaf2f8;
             border-radius: 4px;
         }
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #3498db;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -135,6 +149,9 @@
                     <small>Drop Word or text file here, or click to select</small>
                     <input type="file" id="formulas-input" accept=".docx,.doc,.txt,.csv" style="display: none;">
                     <div id="formulas-success" style="color: #27ae60; display: none;"></div>
+                    <div id="formulas-loading" style="display: none;">
+                        <div class="loading"></div> Processing Word document...
+                    </div>
                 </div>
             </div>
             
@@ -145,7 +162,7 @@
         </div>
         
         <!-- Results Section -->
-        <div id="result-section" class="section">
+        <div id="result-section" class="section" style="display: none;">
             <h2>Solution</h2>
             
             <div id="error-message" class="error-message" style="display: none;"></div>
@@ -168,6 +185,9 @@
     </div>
 
     <script>
+        // Global namespace for docx
+        const docx = window.docx;
+        
         // DOM Elements
         const problemInput = document.getElementById('problem-input');
         const interestFactorsDropzone = document.getElementById('interest-factors-dropzone');
@@ -176,6 +196,7 @@
         const formulasDropzone = document.getElementById('formulas-dropzone');
         const formulasInput = document.getElementById('formulas-input');
         const formulasSuccess = document.getElementById('formulas-success');
+        const formulasLoading = document.getElementById('formulas-loading');
         const solveBtn = document.getElementById('solve-btn');
         const clearBtn = document.getElementById('clear-btn');
         const resultSection = document.getElementById('result-section');
@@ -189,7 +210,6 @@
         let interestFactors = null;
         let formulas = null;
         
-        // Event listeners
         // Interest factors event listeners
         interestFactorsDropzone.addEventListener('click', () => {
             interestFactorsInput.click();
@@ -281,6 +301,145 @@
             reader.readAsArrayBuffer(file);
         }
         
+        // Function to handle formulas file
+        function handleFormulasFile(file) {
+            if (file.name.endsWith('.docx')) {
+                // Show loading indicator for Word processing
+                formulasLoading.style.display = 'block';
+                formulasSuccess.style.display = 'none';
+                
+                const reader = new FileReader();
+                
+                reader.onload = async (e) => {
+                    try {
+                        // Get the array buffer from the file
+                        const arrayBuffer = e.target.result;
+                        
+                        // Create a Uint8Array from the array buffer
+                        const uint8Array = new Uint8Array(arrayBuffer);
+                        
+                        try {
+                            // Use docx to load and parse the document
+                            const buffer = await docx.Document.load(uint8Array);
+                            const doc = buffer;
+                            
+                            // Extract text from the Word document
+                            let extractedText = '';
+                            
+                            // Process paragraphs
+                            for (const paragraph of doc.Sections[0].Children) {
+                                if (paragraph.Children) {
+                                    for (const textRun of paragraph.Children) {
+                                        if (textRun.text) {
+                                            extractedText += textRun.text + ' ';
+                                        }
+                                    }
+                                    extractedText += '\n';
+                                }
+                            }
+                            
+                            // Hide loading indicator
+                            formulasLoading.style.display = 'none';
+                            
+                            // Store and display the extracted formulas
+                            formulas = extractedText;
+                            displayFormulas(formulas);
+                            
+                        } catch (docxError) {
+                            // If docx library fails, try an alternative approach (simplified text extraction)
+                            console.error("Error with docx library:", docxError);
+                            
+                            // Simple text extraction from Word XML
+                            const text = new TextDecoder("utf-8").decode(uint8Array);
+                            
+                            // Extract text using regex (basic approach)
+                            const matches = text.match(/<w:t[^>]*>(.*?)<\/w:t>/g) || [];
+                            const extractedText = matches
+                                .map(match => match.replace(/<w:t[^>]*>(.*?)<\/w:t>/, '$1'))
+                                .join(' ')
+                                .replace(/\s+/g, ' ');
+                            
+                            formulas = extractedText;
+                            
+                            // Hide loading indicator
+                            formulasLoading.style.display = 'none';
+                            
+                            // Display the extracted text
+                            displayFormulas(formulas);
+                        }
+                    } catch (err) {
+                        // Hide loading indicator
+                        formulasLoading.style.display = 'none';
+                        
+                        showError('Error parsing Word document: ' + err.message);
+                    }
+                };
+                
+                reader.onerror = () => {
+                    // Hide loading indicator
+                    formulasLoading.style.display = 'none';
+                    
+                    showError('Error reading the file');
+                };
+                
+                reader.readAsArrayBuffer(file);
+            } else {
+                // For text files (txt, csv)
+                const reader = new FileReader();
+                
+                reader.onload = (e) => {
+                    try {
+                        formulas = e.target.result;
+                        displayFormulas(formulas);
+                    } catch (err) {
+                        showError('Error parsing text file: ' + err.message);
+                    }
+                };
+                
+                reader.onerror = () => {
+                    showError('Error reading the file');
+                };
+                
+                reader.readAsText(file);
+            }
+        }
+        
+        // Function to display loaded formulas
+        function displayFormulas(content) {
+            formulasSuccess.textContent = '✓ Formulas file loaded';
+            formulasSuccess.style.display = 'block';
+            
+            // Create or update the formulas section
+            if (!document.getElementById('formulas-section')) {
+                const formulasSection = document.createElement('div');
+                formulasSection.id = 'formulas-section';
+                formulasSection.className = 'section';
+                formulasSection.style.marginTop = '20px';
+                
+                const formulasTitle = document.createElement('h2');
+                formulasTitle.textContent = 'Loaded Formulas';
+                
+                const formulasContent = document.createElement('pre');
+                formulasContent.id = 'formulas-content';
+                formulasContent.style.backgroundColor = '#f0f0f0';
+                formulasContent.style.padding = '10px';
+                formulasContent.style.borderRadius = '4px';
+                formulasContent.style.maxHeight = '200px';
+                formulasContent.style.overflowY = 'auto';
+                formulasContent.textContent = content;
+                
+                formulasSection.appendChild(formulasTitle);
+                formulasSection.appendChild(formulasContent);
+                
+                document.querySelector('.container').appendChild(formulasSection);
+            } else {
+                document.getElementById('formulas-content').textContent = content;
+                document.getElementById('formulas-section').style.display = 'block';
+            }
+            
+            hideError();
+        }
+        
         // Function to solve the problem
         function solveProblem() {
             const problem = problemInput.value.trim();
@@ -306,8 +465,13 @@
                 // Display the extracted information
                 displayExtractedInfo(extractedData);
                 
-                // Calculate the result
-                calculateAndDisplayResult(extractedData);
+                // Try to use the formulas file if available
+                if (formulas && formulas.trim().length > 0) {
+                    calculateUsingFormulas(extractedData);
+                } else {
+                    // Fall back to built-in calculation
+                    calculateAndDisplayResult(extractedData);
+                }
                 
             } catch (err) {
                 showError('Error solving the problem: ' + err.message);
@@ -473,107 +637,6 @@
             stepsContent.textContent = steps;
         }
         
-        // Function to handle formulas file
-        function handleFormulasFile(file) {
-            const reader = new FileReader();
-            
-            reader.onload = (e) => {
-                try {
-                    // Check if it's a Word document
-                    if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
-                        const arrayBuffer = e.target.result;
-                        
-                        // Use mammoth.js to extract text from Word document
-                        mammoth.extractRawText({ arrayBuffer: arrayBuffer })
-                            .then(function(result) {
-                                formulas = result.value; // The raw text content
-                                displayFormulas(formulas);
-                            })
-                            .catch(function(error) {
-                                showError('Error extracting text from Word file: ' + error.message);
-                            });
-                    } else {
-                        // For text files
-                        formulas = e.target.result;
-                        displayFormulas(formulas);
-                    }
-                } catch (err) {
-                    showError('Error parsing formulas file: ' + err.message);
-                }
-            };
-            
-            reader.onerror = () => {
-                showError('Error reading the file');
-            };
-            
-            // Read as array buffer for Word documents, text for other files
-            if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
-                reader.readAsArrayBuffer(file);
-            } else {
-                reader.readAsText(file);
-            }
-        }
-        
-        // Function to display loaded formulas
-        function displayFormulas(content) {
-            formulasSuccess.textContent = '✓ Formulas file loaded';
-            formulasSuccess.style.display = 'block';
-            
-            // Create or update the formulas section
-            if (!document.getElementById('formulas-section')) {
-                const formulasSection = document.createElement('div');
-                formulasSection.id = 'formulas-section';
-                formulasSection.className = 'section';
-                formulasSection.style.marginTop = '20px';
-                
-                const formulasTitle = document.createElement('h2');
-                formulasTitle.textContent = 'Loaded Formulas';
-                
-                const formulasContent = document.createElement('pre');
-                formulasContent.id = 'formulas-content';
-                formulasContent.style.backgroundColor = '#f0f0f0';
-                formulasContent.style.padding = '10px';
-                formulasContent.style.borderRadius = '4px';
-                formulasContent.style.maxHeight = '200px';
-                formulasContent.style.overflowY = 'auto';
-                formulasContent.textContent = content;
-                
-                formulasSection.appendChild(formulasTitle);
-                formulasSection.appendChild(formulasContent);
-                
-                document.querySelector('.container').appendChild(formulasSection);
-            } else {
-                document.getElementById('formulas-content').textContent = content;
-                document.getElementById('formulas-section').style.display = 'block';
-            }
-            
-            hideError();
-        }
-        
-        // Function to clear all inputs and results
-        function clearAll() {
-            problemInput.value = '';
-            resultSection.style.display = 'none';
-            errorMessage.style.display = 'none';
-            extractedInfo.style.display = 'none';
-            
-            // Hide the formulas section if it exists
-            const formulasSection = document.getElementById('formulas-section');
-            if (formulasSection) {
-                formulasSection.style.display = 'none';
-            }
-            
-            // Reset the success messages
-            interestFactorsSuccess.style.display = 'none';
-            formulasSuccess.style.display = 'none';
-        }
-        
-        // Helper function to show error messages
-        function showError(message) {
-            errorMessage.textContent = message;
-            errorMessage.style.display = 'block';
-        }
-        
         // Function to calculate using formulas from the uploaded file
         function calculateUsingFormulas(data) {
             // Parse the formulas file to find the appropriate formula
@@ -589,10 +652,19 @@
                 for (const line of formulaLines) {
                     // Simple parsing - look for lines that start with the problem type
                     if (line.trim().toUpperCase().startsWith(problemType + ':') || 
-                        line.trim().toUpperCase().startsWith(problemType + ' =')) {
+                        line.trim().toUpperCase().startsWith(problemType + ' =') ||
+                        line.trim().toUpperCase().includes(' ' + problemType + ' =') ||
+                        line.trim().toUpperCase().includes(' ' + problemType + ':')) {
                         
                         // Extract the formula text
-                        const formulaText = line.trim().substring(line.indexOf(':') + 1 || line.indexOf('=') + 1).trim();
+                        let formulaText = '';
+                        if (line.includes(':')) {
+                            formulaText = line.trim().substring(line.indexOf(':') + 1).trim();
+                        } else if (line.includes('=')) {
+                            formulaText = line.trim().substring(line.indexOf('=') + 1).trim();
+                        } else {
+                            formulaText = line.trim();
+                        }
                         
                         steps = `Using formula from file: ${line.trim()}\n\n`;
                         
@@ -651,15 +723,3 @@
                 // Fall back to built-in calculation
                 calculateAndDisplayResult(data);
             }
-        }
-        
-        // Helper function to hide error messages
-        function hideError() {
-            errorMessage.style.display = 'none';
-        }
-        
-        // Initialize with an example problem
-        problemInput.value = "You put $12,000 in your bank account that pays 5% annual interest. What is the future value of this account at the end of the 14th year?";
-    </script>
-</body>
-</html>
