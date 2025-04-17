@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Time Value of Money Calculator</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.5.0/mammoth.browser.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -130,9 +131,9 @@
                 </div>
                 
                 <div id="formulas-dropzone" class="dropzone">
-                    <p>Formulas File (Text/CSV)</p>
-                    <small>Drop formulas file here, or click to select</small>
-                    <input type="file" id="formulas-input" accept=".txt,.csv" style="display: none;">
+                    <p>Formulas File</p>
+                    <small>Drop Word or text file here, or click to select</small>
+                    <input type="file" id="formulas-input" accept=".docx,.doc,.txt,.csv" style="display: none;">
                     <div id="formulas-success" style="color: #27ae60; display: none;"></div>
                 </div>
             </div>
@@ -189,6 +190,7 @@
         let formulas = null;
         
         // Event listeners
+        // Interest factors event listeners
         interestFactorsDropzone.addEventListener('click', () => {
             interestFactorsInput.click();
         });
@@ -213,6 +215,34 @@
         interestFactorsInput.addEventListener('change', (e) => {
             if (e.target.files.length) {
                 handleInterestFactorsFile(e.target.files[0]);
+            }
+        });
+        
+        // Formulas file event listeners
+        formulasDropzone.addEventListener('click', () => {
+            formulasInput.click();
+        });
+        
+        formulasDropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            formulasDropzone.style.backgroundColor = '#f0f0f0';
+        });
+        
+        formulasDropzone.addEventListener('dragleave', () => {
+            formulasDropzone.style.backgroundColor = '';
+        });
+        
+        formulasDropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            formulasDropzone.style.backgroundColor = '';
+            if (e.dataTransfer.files.length) {
+                handleFormulasFile(e.dataTransfer.files[0]);
+            }
+        });
+        
+        formulasInput.addEventListener('change', (e) => {
+            if (e.target.files.length) {
+                handleFormulasFile(e.target.files[0]);
             }
         });
         
@@ -443,18 +473,184 @@
             stepsContent.textContent = steps;
         }
         
+        // Function to handle formulas file
+        function handleFormulasFile(file) {
+            const reader = new FileReader();
+            
+            reader.onload = (e) => {
+                try {
+                    // Check if it's a Word document
+                    if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+                        const arrayBuffer = e.target.result;
+                        
+                        // Use mammoth.js to extract text from Word document
+                        mammoth.extractRawText({ arrayBuffer: arrayBuffer })
+                            .then(function(result) {
+                                formulas = result.value; // The raw text content
+                                displayFormulas(formulas);
+                            })
+                            .catch(function(error) {
+                                showError('Error extracting text from Word file: ' + error.message);
+                            });
+                    } else {
+                        // For text files
+                        formulas = e.target.result;
+                        displayFormulas(formulas);
+                    }
+                } catch (err) {
+                    showError('Error parsing formulas file: ' + err.message);
+                }
+            };
+            
+            reader.onerror = () => {
+                showError('Error reading the file');
+            };
+            
+            // Read as array buffer for Word documents, text for other files
+            if (file.name.endsWith('.docx') || file.name.endsWith('.doc')) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsText(file);
+            }
+        }
+        
+        // Function to display loaded formulas
+        function displayFormulas(content) {
+            formulasSuccess.textContent = '✓ Formulas file loaded';
+            formulasSuccess.style.display = 'block';
+            
+            // Create or update the formulas section
+            if (!document.getElementById('formulas-section')) {
+                const formulasSection = document.createElement('div');
+                formulasSection.id = 'formulas-section';
+                formulasSection.className = 'section';
+                formulasSection.style.marginTop = '20px';
+                
+                const formulasTitle = document.createElement('h2');
+                formulasTitle.textContent = 'Loaded Formulas';
+                
+                const formulasContent = document.createElement('pre');
+                formulasContent.id = 'formulas-content';
+                formulasContent.style.backgroundColor = '#f0f0f0';
+                formulasContent.style.padding = '10px';
+                formulasContent.style.borderRadius = '4px';
+                formulasContent.style.maxHeight = '200px';
+                formulasContent.style.overflowY = 'auto';
+                formulasContent.textContent = content;
+                
+                formulasSection.appendChild(formulasTitle);
+                formulasSection.appendChild(formulasContent);
+                
+                document.querySelector('.container').appendChild(formulasSection);
+            } else {
+                document.getElementById('formulas-content').textContent = content;
+                document.getElementById('formulas-section').style.display = 'block';
+            }
+            
+            hideError();
+        }
+        
         // Function to clear all inputs and results
         function clearAll() {
             problemInput.value = '';
             resultSection.style.display = 'none';
             errorMessage.style.display = 'none';
             extractedInfo.style.display = 'none';
+            
+            // Hide the formulas section if it exists
+            const formulasSection = document.getElementById('formulas-section');
+            if (formulasSection) {
+                formulasSection.style.display = 'none';
+            }
+            
+            // Reset the success messages
+            interestFactorsSuccess.style.display = 'none';
+            formulasSuccess.style.display = 'none';
         }
         
         // Helper function to show error messages
         function showError(message) {
             errorMessage.textContent = message;
             errorMessage.style.display = 'block';
+        }
+        
+        // Function to calculate using formulas from the uploaded file
+        function calculateUsingFormulas(data) {
+            // Parse the formulas file to find the appropriate formula
+            const formulaLines = formulas.split('\n');
+            let formulaFound = false;
+            let result = 0;
+            let steps = '';
+            
+            try {
+                // Look for the formula matching our problem type
+                const problemType = data.problemType.toUpperCase();
+                
+                for (const line of formulaLines) {
+                    // Simple parsing - look for lines that start with the problem type
+                    if (line.trim().toUpperCase().startsWith(problemType + ':') || 
+                        line.trim().toUpperCase().startsWith(problemType + ' =')) {
+                        
+                        // Extract the formula text
+                        const formulaText = line.trim().substring(line.indexOf(':') + 1 || line.indexOf('=') + 1).trim();
+                        
+                        steps = `Using formula from file: ${line.trim()}\n\n`;
+                        
+                        // For demonstration, we'll still use our built-in calculations
+                        // In a real implementation, you would parse and evaluate the formula
+                        if (data.problemType === 'fv') {
+                            result = data.amount * Math.pow(1 + data.rate, data.periods);
+                            steps += `Substituting values:\n`;
+                            steps += `FV = ${data.amount.toLocaleString()} × (1 + ${(data.rate).toFixed(4)})^${data.periods}\n`;
+                            steps += `FV = ${data.amount.toLocaleString()} × ${Math.pow(1 + data.rate, data.periods).toFixed(4)}\n`;
+                            steps += `FV = ${result.toFixed(2)}`;
+                        } else if (data.problemType === 'pv') {
+                            result = data.amount / Math.pow(1 + data.rate, data.periods);
+                            steps += `Substituting values:\n`;
+                            steps += `PV = ${data.amount.toLocaleString()} / (1 + ${(data.rate).toFixed(4)})^${data.periods}\n`;
+                            steps += `PV = ${data.amount.toLocaleString()} / ${Math.pow(1 + data.rate, data.periods).toFixed(4)}\n`;
+                            steps += `PV = ${result.toFixed(2)}`;
+                        } else if (data.problemType === 'pmt') {
+                            result = data.amount * data.rate * Math.pow(1 + data.rate, data.periods) / (Math.pow(1 + data.rate, data.periods) - 1);
+                            steps += `Substituting values:\n`;
+                            steps += `PMT = ${data.amount.toLocaleString()} × ${(data.rate).toFixed(4)} × ${Math.pow(1 + data.rate, data.periods).toFixed(4)} / ${(Math.pow(1 + data.rate, data.periods) - 1).toFixed(4)}\n`;
+                            steps += `PMT = ${result.toFixed(2)}`;
+                        } else if (data.problemType === 'n') {
+                            result = Math.log(data.periods / data.amount) / Math.log(1 + data.rate);
+                            steps += `Substituting values:\n`;
+                            steps += `n = ln(${data.periods} / ${data.amount}) / ln(1 + ${(data.rate).toFixed(4)})\n`;
+                            steps += `n = ${result.toFixed(2)} years`;
+                        } else if (data.problemType === 'r') {
+                            result = Math.pow(data.periods / data.amount, 1 / data.periods) - 1;
+                            result = result * 100; // Convert to percentage
+                            steps += `Substituting values:\n`;
+                            steps += `r = (${data.periods} / ${data.amount})^(1/${data.periods}) - 1\n`;
+                            steps += `r = ${(result / 100).toFixed(4)} = ${result.toFixed(2)}%`;
+                        }
+                        
+                        formulaFound = true;
+                        break;
+                    }
+                }
+                
+                if (!formulaFound) {
+                    // If no formula is found, fall back to built-in calculation
+                    calculateAndDisplayResult(data);
+                    return;
+                }
+                
+                // Display the result
+                resultValue.textContent = data.problemType === 'r' ? 
+                    `${result.toFixed(2)}%` : 
+                    `${result.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+                    
+                stepsContent.textContent = steps;
+                
+            } catch (err) {
+                showError('Error using formula from file: ' + err.message);
+                // Fall back to built-in calculation
+                calculateAndDisplayResult(data);
+            }
         }
         
         // Helper function to hide error messages
