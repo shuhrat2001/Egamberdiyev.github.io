@@ -1,1 +1,0 @@
-# Egamberdiyev.github.io
